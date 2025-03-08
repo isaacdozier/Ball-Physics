@@ -292,9 +292,22 @@ class Scene {
             this.ball.angularVelocity = new THREE.Vector3(0, 0, 0);
         }
         
-        // Apply gravity when ball is above ground
-        if (this.ball.position.y > CONFIG.ball.radius) {
+        // Apply gravity when ball is not in contact with a surface
+        // This ensures the ball always falls when it should
+        const isOnGround = this.ball.position.y <= CONFIG.ball.radius + 0.01;
+        
+        if (!isOnGround) {
+            // Always apply gravity if not in contact with the ground
             this.ball.velocity.y -= CONFIG.physics.gravity;
+            
+            // If velocity was zero but we're not on ground, ensure it gets a small push downward
+            if (this.ball.velocity.y === 0) {
+                this.ball.velocity.y = -0.001; // Add a small downward velocity
+            }
+        } else if (this.ball.velocity.y < 0) {
+            // If we're on ground and moving downward, stop vertical movement
+            this.ball.velocity.y = 0;
+            this.ball.position.y = CONFIG.ball.radius; // Fix position exactly at ground level
         }
         
         // Store the previous position and velocity for collision detection
@@ -313,8 +326,20 @@ class Scene {
         // Check for and handle collisions with surfaces
         this.handleSurfaceCollisions(previousPosition, previousVelocity);
         
+        // After collision handling, if the ball is very close to the ground and nearly stopped, 
+        // fix its position exactly at the ground level to prevent micro-bounces
+        if (Math.abs(this.ball.position.y - CONFIG.ball.radius) < 0.01 && 
+            Math.abs(this.ball.velocity.y) < 0.001) {
+            this.ball.position.y = CONFIG.ball.radius;
+            this.ball.velocity.y = 0;
+        }
+        
         // Apply spin-velocity correlation physics
         this.applySpinVelocityCorrelation();
+        
+        // Define velocity threshold below which we set to zero
+        const VELOCITY_THRESHOLD = 0.00005;
+        const ANGULAR_VELOCITY_THRESHOLD = 0.00005;
         
         // Apply continuous ground friction if the ball is rolling on the ground
         if (this.ball.position.y <= CONFIG.ball.radius + 0.1) {
@@ -331,6 +356,21 @@ class Scene {
                 const rollingFriction = 0.985;
                 this.ball.velocity.x *= rollingFriction;
                 this.ball.velocity.z *= rollingFriction;
+            } else if (horizontalSpeed <= VELOCITY_THRESHOLD) {
+                // If speed is below threshold, set horizontal velocity to zero
+                this.ball.velocity.x = 0;
+                this.ball.velocity.z = 0;
+                
+                // Also ensure the ball is perfectly at rest vertically when it's practically stopped
+                if (Math.abs(this.ball.velocity.y) < 0.001) {
+                    this.ball.velocity.y = 0;
+                    this.ball.position.y = CONFIG.ball.radius;
+                }
+            }
+            
+            // Also stop vertical velocity when on ground
+            if (Math.abs(this.ball.velocity.y) <= VELOCITY_THRESHOLD) {
+                this.ball.velocity.y = 0;
             }
         }
         
@@ -339,15 +379,37 @@ class Scene {
         const currentSpeed = this.ball.velocity.length();
         if (currentSpeed > maxSpeed) {
             this.ball.velocity.multiplyScalar(maxSpeed / currentSpeed);
+        } else if (currentSpeed <= VELOCITY_THRESHOLD) {
+            // If overall speed is below threshold, stop all movement
+            this.ball.velocity.set(0, 0, 0);
         }
         
         // Apply air resistance with unified decay rates
-        const airResistanceVelocity = 0.99;
-        const airResistanceSpin = 0.99;
+        const airResistanceVelocity = 0.98;
+        const airResistanceSpin = 0.98;
         
         // Apply air resistance to velocity and spin
         this.ball.velocity.multiplyScalar(airResistanceVelocity);
         this.ball.angularVelocity.multiplyScalar(airResistanceSpin);
+        
+        // FINAL CHECK: Force velocities to zero if they're very small
+        // This is a more aggressive approach to ensure the ball eventually stops
+        if (Math.abs(this.ball.velocity.x) < 0.0001) this.ball.velocity.x = 0;
+        if (Math.abs(this.ball.velocity.y) < 0.0001) this.ball.velocity.y = 0;
+        if (Math.abs(this.ball.velocity.z) < 0.0001) this.ball.velocity.z = 0;
+        
+        // If velocity is near-zero and ball is near ground, force it to rest completely
+        if (this.ball.velocity.length() < 0.0002 && 
+            Math.abs(this.ball.position.y - CONFIG.ball.radius) < 0.02) {
+            this.ball.velocity.set(0, 0, 0);
+            this.ball.position.y = CONFIG.ball.radius;
+            this.ball.angularVelocity.set(0, 0, 0);
+        }
+        
+        // Check if angular velocity is below threshold, stop rotation if it is
+        if (this.ball.angularVelocity.length() <= ANGULAR_VELOCITY_THRESHOLD) {
+            this.ball.angularVelocity.set(0, 0, 0);
+        }
         
         // Apply angular velocity to rotation
         this.applyRotation();
