@@ -1,54 +1,206 @@
 /**
- * Input controls management
+ * Simplified controls manager with minimal gamepad integration
  */
 class Controls {
-    constructor() {
+    constructor(game) {
+        // Store game reference
+        this.game = game;
+        
+        // Keyboard state
         this.keysPressed = {};
+        this.keyJustPressed = {};
         
-        // Set up event listeners
-        window.addEventListener('keydown', (event) => {
-            this.keysPressed[event.key.toLowerCase()] = true;
-        });
+        // Initialize keyboard listeners
+        window.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        window.addEventListener('keyup', (e) => this.handleKeyUp(e));
         
-        window.addEventListener('keyup', (event) => {
-            this.keysPressed[event.key.toLowerCase()] = false;
-        });
+        // Initialize gamepad
+        this.initGamepad();
+        
+        console.log('Controls initialized');
     }
+    
+    handleKeyDown(event) {
+        const key = event.key.toLowerCase();
+        
+        // Track if this is a new press
+        if (!this.keysPressed[key]) {
+            this.keyJustPressed[key] = true;
+            
+            // Handle immediate actions
+            this.checkOneTimeActions();
+        }
+        
+        // Track the pressed state
+        this.keysPressed[key] = true;
+    }
+    
+    handleKeyUp(event) {
+        this.keysPressed[event.key.toLowerCase()] = false;
+    }
+    
+    initGamepad() {
+        try {
+            // Use the minimal controller implementation
+            if (typeof MinimalGamepadController !== 'undefined') {
+                this.gamepad = new MinimalGamepadController();
+                console.log('Minimal gamepad initialized');
+            } else {
+                console.warn('MinimalGamepadController not found');
+                this.gamepad = null;
+            }
+        } catch (e) {
+            console.error('Error initializing gamepad:', e);
+            this.gamepad = null;
+        }
+    }
+    
+    update() {
+        // Check for one-shot gamepad actions
+        this.checkGamepadActions();
+        
+        // Clear the "just pressed" flags after processing
+        this.keyJustPressed = {};
+    }
+    
+    checkOneTimeActions() {
+        // Check for keyboard one-time actions
+        if (this.keyJustPressed['r']) {
+            this.resetBall();
+        }
+        
+        if (this.keyJustPressed['p']) {
+            this.toggleDebug();
+        }
+        
+        if (this.keyJustPressed['arrowleft']) {
+            this.rotateCameraLeft();
+        }
+        
+        if (this.keyJustPressed['arrowright']) {
+            this.rotateCameraRight();
+        }
+    }
+    
+    checkGamepadActions() {
+        // Only check if gamepad is available
+        if (this.gamepad) {
+            // Reset ball
+            if (this.gamepad.isResetPressed()) {
+                this.resetBall();
+            }
+            
+            // Toggle debug
+            if (this.gamepad.isToggleDebugPressed()) {
+                this.toggleDebug();
+            }
+        }
+    }
+    
+    // ---- CORE INPUT METHODS ----
     
     isPressed(key) {
         return this.keysPressed[key] === true;
     }
     
-    /**
-     * Get steering input (-1 to 1)
-     * Negative values = left, Positive values = right
-     */
     getSteeringInput() {
-        let steeringInput = 0;
+        // Start with keyboard
+        let steering = 0;
+        if (this.isPressed('a')) steering -= 1;
+        if (this.isPressed('d')) steering += 1;
         
-        if (this.isPressed('a')) steeringInput -= 1;
-        if (this.isPressed('d')) steeringInput += 1;
+        // Add gamepad if available
+        if (this.gamepad && this.gamepad.isControllerConnected()) {
+            const gamepadSteering = this.gamepad.getSteeringInput();
+            if (Math.abs(gamepadSteering) > 0.1) {
+                steering = gamepadSteering;
+            }
+        }
         
-        return steeringInput;
+        return steering;
     }
     
-    /**
-     * Get throttle input (-1 to 1)
-     * Negative values = reverse, Positive values = forward
-     */
     getThrottleInput() {
-        let throttleInput = 0;
+        // Start with keyboard
+        let throttle = 0;
+        if (this.isPressed('w')) throttle += 1;
+        if (this.isPressed('s')) throttle -= 1;
         
-        if (this.isPressed('w')) throttleInput += 1;
-        if (this.isPressed('s')) throttleInput -= 1;
+        // Add gamepad if available
+        if (this.gamepad && this.gamepad.isControllerConnected()) {
+            const gamepadThrottle = this.gamepad.getThrottleInput();
+            if (Math.abs(gamepadThrottle) > 0.1) {
+                throttle = gamepadThrottle;
+            }
+        }
         
-        return throttleInput;
+        return throttle;
     }
     
-    /**
-     * Is handbrake active?
-     */
     isHandbrakeActive() {
-        return this.isPressed(' ');
+        // Keyboard space
+        let handbrake = this.isPressed(' ');
+        
+        // Add gamepad if available
+        if (this.gamepad && this.gamepad.isControllerConnected()) {
+            handbrake = handbrake || this.gamepad.isHandbrakeActive();
+        }
+        
+        return handbrake;
+    }
+    
+    // ---- ACTION METHODS ----
+    
+    resetBall() {
+        try {
+            if (this.game && this.game.scene && this.game.scene.ball) {
+                this.game.scene.ball.position.set(10, 20, 0);
+                this.game.scene.ball.velocity.set(0, 0, 0);
+                this.game.scene.ball.angularVelocity.set(0, 0, 0);
+                this.game.scene.ball.quaternion.identity();
+                
+                // Provide feedback if controller connected
+                if (this.gamepad && this.gamepad.isControllerConnected()) {
+                    this.gamepad.rumble(0.3, 200);
+                }
+            }
+        } catch (e) {
+            console.error('Error resetting ball:', e);
+        }
+    }
+    
+    toggleDebug() {
+        try {
+            if (this.game && this.game.scene) {
+                this.game.scene.toggleDebug();
+                
+                // Provide feedback if controller connected
+                if (this.gamepad && this.gamepad.isControllerConnected()) {
+                    this.gamepad.rumble(0.2, 100);
+                }
+            }
+        } catch (e) {
+            console.error('Error toggling debug:', e);
+        }
+    }
+    
+    rotateCameraLeft() {
+        try {
+            if (this.game && this.game.camera) {
+                this.game.camera.rotateOffsetLeft();
+            }
+        } catch (e) {
+            console.error('Error rotating camera left:', e);
+        }
+    }
+    
+    rotateCameraRight() {
+        try {
+            if (this.game && this.game.camera) {
+                this.game.camera.rotateOffsetRight();
+            }
+        } catch (e) {
+            console.error('Error rotating camera right:', e);
+        }
     }
 }

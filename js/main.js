@@ -1,12 +1,12 @@
 /**
- * Main game initialization and loop - with debug controls
+ * Main game initialization and loop with minimal controller support
  */
 class Game {
     constructor() {
         // Initialize core components
         this.scene = new Scene();
         this.camera = new GameCamera();
-        this.controls = new Controls();
+        this.controls = new Controls(this);
         this.vehicle = new Vehicle(this.scene);
         
         // Complete the resize handler in scene.js
@@ -17,6 +17,10 @@ class Game {
         
         // Setup debug controls
         this.setupDebugControls();
+        this.setupControlsInfo();
+        
+        // Last collision time for rumble effect timing
+        this.lastCollisionTime = 0;
         
         // Start animation loop
         this.animate();
@@ -65,6 +69,77 @@ class Game {
         
         // Add the debug panel to the document
         document.body.appendChild(debugPanel);
+    }
+    
+    setupControlsInfo() {
+        // Create controls info panel
+        const controlsPanel = document.createElement('div');
+        controlsPanel.style.position = 'absolute';
+        controlsPanel.style.top = '10px';
+        controlsPanel.style.left = '10px';
+        controlsPanel.style.background = 'rgba(0,0,0,0.7)';
+        controlsPanel.style.color = 'white';
+        controlsPanel.style.padding = '10px';
+        controlsPanel.style.borderRadius = '5px';
+        controlsPanel.style.fontFamily = 'Arial, sans-serif';
+        controlsPanel.style.zIndex = '1000';
+        controlsPanel.style.maxWidth = '250px';
+        controlsPanel.style.fontSize = '12px';
+        
+        // Create toggle button for controls info
+        const toggleButton = document.createElement('button');
+        toggleButton.textContent = 'Show Controls';
+        toggleButton.style.display = 'block';
+        toggleButton.style.margin = '0 0 10px 0';
+        toggleButton.style.padding = '5px 10px';
+        toggleButton.style.width = '100%';
+        
+        // Controls info content
+        const controlsInfo = document.createElement('div');
+        controlsInfo.style.display = 'none';
+        
+        // Add keyboard controls
+        const keyboardControls = document.createElement('div');
+        keyboardControls.innerHTML = `
+            <h3>Keyboard Controls:</h3>
+            <p>W/S - Accelerate/Brake</p>
+            <p>A/D - Steer Left/Right</p>
+            <p>Space - Handbrake</p>
+            <p>R - Reset Ball</p>
+            <p>P - Toggle Debug</p>
+            <p>Arrow Left/Right - Rotate Camera</p>
+        `;
+        controlsInfo.appendChild(keyboardControls);
+        
+        // Add controller controls
+        const controllerControls = document.createElement('div');
+        controllerControls.innerHTML = `
+            <h3>Controller:</h3>
+            <p>Left Stick - Steering</p>
+            <p>Right Trigger - Accelerate</p>
+            <p>Left Trigger - Brake/Reverse</p>
+            <p>A Button - Accelerate</p>
+            <p>X Button - Brake</p>
+            <p>B Button - Handbrake</p>
+            <p>Y Button - Reset Ball</p>
+            <p>Back/Select - Toggle Debug</p>
+        `;
+        controlsInfo.appendChild(controllerControls);
+        
+        // Toggle controls visibility
+        toggleButton.addEventListener('click', () => {
+            if (controlsInfo.style.display === 'none') {
+                controlsInfo.style.display = 'block';
+                toggleButton.textContent = 'Hide Controls';
+            } else {
+                controlsInfo.style.display = 'none';
+                toggleButton.textContent = 'Show Controls';
+            }
+        });
+        
+        controlsPanel.appendChild(toggleButton);
+        controlsPanel.appendChild(controlsInfo);
+        document.body.appendChild(controlsPanel);
     }
     
     addSpinControlButtons(debugPanel) {
@@ -189,6 +264,9 @@ class Game {
     }
     
     update() {
+        // Update controls (processes one-shot inputs)
+        this.controls.update();
+        
         // Update vehicle based on controls
         this.vehicle.update(this.controls);
         
@@ -196,7 +274,20 @@ class Game {
         this.scene.updateBall();
         
         // Check for collision between vehicle and ball
-        this.scene.checkVehicleCollision(this.vehicle);
+        const collision = this.scene.checkVehicleCollision(this.vehicle);
+        
+        // Provide haptic feedback on collision if controller is connected
+        if (collision && this.controls.gamepad && this.controls.gamepad.isControllerConnected()) {
+            // Limit frequency of rumble effects
+            const currentTime = performance.now();
+            if (currentTime - this.lastCollisionTime > 500) { // Minimum 500ms between rumbles
+                // Rumble strength based on vehicle speed
+                const speed = Math.abs(this.vehicle.getVelocity());
+                const rumbleStrength = Math.min(1.0, speed * 5);
+                this.controls.gamepad.rumble(rumbleStrength, 300);
+                this.lastCollisionTime = currentTime;
+            }
+        }
         
         // Update camera to follow vehicle
         this.camera.updatePosition(
@@ -214,5 +305,64 @@ class Game {
 
 // Start the game when the page loads
 window.addEventListener('DOMContentLoaded', () => {
-    new Game();
+    // Display loading screen
+    const loadingScreen = document.createElement('div');
+    loadingScreen.style.position = 'fixed';
+    loadingScreen.style.top = '0';
+    loadingScreen.style.left = '0';
+    loadingScreen.style.width = '100%';
+    loadingScreen.style.height = '100%';
+    loadingScreen.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+    loadingScreen.style.display = 'flex';
+    loadingScreen.style.flexDirection = 'column';
+    loadingScreen.style.justifyContent = 'center';
+    loadingScreen.style.alignItems = 'center';
+    loadingScreen.style.zIndex = '9999';
+    
+    // Add loading text
+    const loadingText = document.createElement('h1');
+    loadingText.textContent = 'Vehicle Soccer Game';
+    loadingText.style.color = 'white';
+    loadingText.style.fontFamily = 'Arial, sans-serif';
+    loadingText.style.marginBottom = '20px';
+    
+    // Add controller info
+    const controllerInfo = document.createElement('p');
+    controllerInfo.textContent = 'Xbox controller support enabled! Connect controller for best experience.';
+    controllerInfo.style.color = '#4CAF50';
+    controllerInfo.style.fontFamily = 'Arial, sans-serif';
+    controllerInfo.style.marginBottom = '30px';
+    
+    // Add a start button
+    const startButton = document.createElement('button');
+    startButton.textContent = 'Start Game';
+    startButton.style.padding = '10px 20px';
+    startButton.style.fontSize = '18px';
+    startButton.style.cursor = 'pointer';
+    startButton.style.backgroundColor = '#4CAF50';
+    startButton.style.color = 'white';
+    startButton.style.border = 'none';
+    startButton.style.borderRadius = '4px';
+    
+    startButton.addEventListener('click', () => {
+        document.body.removeChild(loadingScreen);
+        new Game();
+    });
+    
+    // Add instruction text
+    const instructions = document.createElement('p');
+    instructions.innerHTML = 'Drive the vehicle to hit the ball.<br>Use the controller or keyboard (WASD) to drive.';
+    instructions.style.color = 'white';
+    instructions.style.fontFamily = 'Arial, sans-serif';
+    instructions.style.marginTop = '20px';
+    instructions.style.textAlign = 'center';
+    
+    // Append elements to loading screen
+    loadingScreen.appendChild(loadingText);
+    loadingScreen.appendChild(controllerInfo);
+    loadingScreen.appendChild(startButton);
+    loadingScreen.appendChild(instructions);
+    
+    // Add to document
+    document.body.appendChild(loadingScreen);
 });
